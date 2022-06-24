@@ -2,7 +2,8 @@
  * portsESP32.c
  *
  *  Created on: Jun 7, 2022
- *      Author: root
+ *      Author: Gaston Valdez
+ *      Organization: Instituto Argentino de radioastronomia
  */
 /*
  * portsESP32.c
