@@ -4,14 +4,18 @@
  *  Created on: Jun 7, 2022
  *      Author: root
  */
+/*
+ * portsESP32.c
+ *
+ *  Created on: Jun 7, 2022
+ *      Author: root
+ */
 #include <stdint.h>
 #include <stddef.h>
 #include <freertos/FreeRTOS.h>
 #include "driver/gpio.h"
 #include "driver/i2c.h"
-#define ERROR_I2C_OK 0x00
-#define ERROR_I2C_FAIL 0xFF
-
+#include "portsESP32.h"
 
 /**
  *
@@ -41,7 +45,7 @@ uint8_t  I2CWriteToSlave(uint8_t I2C_address, uint8_t *buffer_data,size_t length
 		error_code = ERROR_I2C_FAIL ;
 		return error_code ;
 	}
-	error_i2c = i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 10, 10, 0) ;
+	error_i2c = i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0) ;
 
 	if (error_i2c == ESP_OK){
 		error_code = ERROR_I2C_OK ;
@@ -137,15 +141,8 @@ uint8_t I2CReadToSlave(uint8_t I2C_address, uint8_t *buffer_data,size_t length_b
 		return error_code ;
 	}else error_code = ERROR_I2C_FAIL ;
 	i2c_driver_delete(I2C_NUM_0) ;
-	printf("driver_read_end:%d",error_code) ;
 	return error_code ;
 }
-
-
-
-
-
-
 
 
 

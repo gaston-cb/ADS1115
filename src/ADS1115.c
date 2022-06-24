@@ -1,15 +1,23 @@
-#include "../inc/ADS1115.h"
-
+#include <ADS1115.h>
 #include <stdio.h>
 #include "esp_log.h"
 #include <string.h>
 
-#include "portsESP32.c"
+#include "portsESP32.h"
+/// ful scale range in volts
+#define FSR_0 6.144f
+#define FSR_1 4.096f
+#define FSR_2 2.048f
+#define FSR_3 1.024f
+#define FSR_4 0.512f
+#define FSR_5 0.256f
+#define NUMBERS_BITS_ADS1015 2048.0 // (11 bits)
+
 // registros punteros del ads1115
-#define ADDRESS_POINTER_REG_CONVERSION_REGISTER 0x00 //0b0000 0000
-#define ADDRESS_POINTER_REG_CONFIG_REGISTER     0x01 //0b0000 0001
-#define ADDRESS_POINTER_REG_HI_THRESH_REGISTER  0x02 //0b0000 0010
-#define ADDRESS_POINTER_REG_LO_THRESH_REGISTER  0x03 //0b0000 0011
+#define ADDRESS_POINTER_REG_CONVERSION_REGISTER 0x00
+#define ADDRESS_POINTER_REG_CONFIG_REGISTER     0x01
+#define ADDRESS_POINTER_REG_HI_THRESH_REGISTER  0x02
+#define ADDRESS_POINTER_REG_LO_THRESH_REGISTER  0x03
 /// ERRORES DEFINIDOS PARA INICIALIZAR ADS1115
 #define ERROR_INIT_ADS1115_OK 0x01 // configuración inicializada correctamente
 #define ERROR_INIT_ADS1115_WRITE_OK 0x02
@@ -21,11 +29,11 @@
 /// fin definicion de errores de inicio de I2C
 
 
-void errorI2CRead(uint8_t *error_code) ;
-void errorI2CWrite(uint8_t *error_code) ;
+static void errorI2CRead(uint8_t *error_code) ;
+static void errorI2CWrite(uint8_t *error_code) ;
 static void setSPS(ADS1115_sps_t sps) ;
 static void alertDRYport(ADS1115_alert_comparator_t alert_user) ;
-
+static float factor_conv_ad ;
 typedef struct {
 	uint8_t MODE : 1 ;
 	uint8_t PGA  : 3 ;
@@ -62,7 +70,7 @@ static ads111x_handle_t ADS1115 ;
  */
 uint8_t ADS1115init(uint8_t i2c_address, ADS1115_config_t *ads1115Config){
 	uint8_t error_code_init;
-	uint8_t address_pointer = 0x01 ; //ADDRESS_POINTER_REG_CONFIG_REGISTER ;
+	uint8_t address_pointer = ADDRESS_POINTER_REG_CONFIG_REGISTER ;
 	uint8_t config_user[3]  = {address_pointer ,0,0} ;
 	uint8_t config_init[2] ;
 	uint8_t read_config_check[2];
@@ -74,12 +82,12 @@ uint8_t ADS1115init(uint8_t i2c_address, ADS1115_config_t *ads1115Config){
 	if (error_code_init != ERROR_INIT_ADS1115_WRITE_OK) {
 		return error_code_init ;
 	}
+	//printf
 	error_code_init = I2CReadToSlave(ADS1115.I2C_address, config_init ,2 ) ;
 	errorI2CRead(&error_code_init) ;
 	if (error_code_init != ERROR_INIT_ADS1115_READ_OK) {
 		return error_code_init ;
 	}
-	printf ("conf_user_init: %02x %02x", config_init[0],config_init[1] ) ;
 
 	// CONFIGURACIÒN DEL USUARIO
 	selectChannel(ADS1115.user_config.channel_select ) ;
@@ -87,29 +95,26 @@ uint8_t ADS1115init(uint8_t i2c_address, ADS1115_config_t *ads1115Config){
 	setMode(ADS1115.user_config.mode_measurement);
 	setSPS(ADS1115.user_config.setSPS) ;
 	alertDRYport(ADS1115.user_config.alert_mode) ;
-	ADS1115.config_register.OS = 1 ;
 	memcpy(&config_user[1],(uint8_t *)&ADS1115.config_register ,2) ;//destino, fuente, tamaño
-	printf ("conf_user: %02x %02x", config_user[1],config_user[2] ) ;
 	// Escritura de la configuraciòn del usuario
+
 	error_code_init = I2CWriteToSlave(ADS1115.I2C_address,config_user,3) ; //escribir registro de configuración
 	errorI2CWrite(&error_code_init) ;
+
 	if (error_code_init != ERROR_INIT_ADS1115_WRITE_OK) {
 			return error_code_init ;
 	}
-	// lectura del registro de configuración de los parametros
-
 	error_code_init =I2CWriteToSlave(ADS1115.I2C_address, &address_pointer, 1 ) ; //register pointer address en 0x01
 	errorI2CRead(&error_code_init) ;
 	if (error_code_init != ERROR_INIT_ADS1115_READ_OK) {
 			return error_code_init ;
 	}
+	// check de configuración de los parametros
 
 	error_code_init = I2CReadToSlave(ADS1115.I2C_address, read_config_check ,2 ) 	   ;
-	errorI2CRead(&error_code_init) ;
 	if (error_code_init != ERROR_INIT_ADS1115_READ_OK) {
 		return error_code_init ;
 	}
-	printf ("parameters_Read_ads: %02x %02x", read_config_check[0],read_config_check[1] ) ;
 
 	//// CHECKING DE LA CONFIGURACION DE USUARIO
 	if (read_config_check[0] == config_user[1] ){
@@ -129,7 +134,29 @@ uint8_t ADS1115init(uint8_t i2c_address, ADS1115_config_t *ads1115Config){
  */
 void setPGA(ADS111x_PGA_values_t ADS115xPGA ){
 	ADS1115.config_register.PGA =  ADS115xPGA ;
+	switch (ADS115xPGA){
+		case (FSR_6144):
+			factor_conv_ad = (FSR_0/NUMBERS_BITS_ADS1015) ;
+			break ;
+		case FSR_4096:
+			factor_conv_ad = (FSR_1/NUMBERS_BITS_ADS1015) ;
+			break ;
+		case FSR_2048:
+			factor_conv_ad = (FSR_2/NUMBERS_BITS_ADS1015) ;
+			break ;
+		case FSR_1024:
+			factor_conv_ad = (FSR_3/NUMBERS_BITS_ADS1015) ;
+			break ;
+		case FSR_512:
+			factor_conv_ad = (FSR_3/NUMBERS_BITS_ADS1015) ;
+			break ;
+		case FSR_256:
+		case FSR1_256:
+		case FSR2_256:
+			factor_conv_ad = (FSR_2/NUMBERS_BITS_ADS1015)  ;
+			break ;
 
+	}
 
 }
 
@@ -174,41 +201,42 @@ static void alertDRYport(ADS1115_alert_comparator_t alert_user){
 }
 
 
+/// falta controlar los errores en caso que existan en los puertos
+/// I2C.
+/// La función lee el valor del adc y lo transforma en un valor de tension en
+/// volts
 float getVoltage(){
+		uint8_t address_pointer  ;
+		uint8_t raw_data[3] = {0x01,0,0} ;
+		uint8_t read_data[2] ;
+		int16_t voltage ; // voltage in mv
+		float volt = 0 ;
+		if (ADS1115.user_config.mode_measurement == CONTINIOUS_MODE){
+			I2CWriteToSlave(ADS1115.I2C_address,&address_pointer,1)        ;
+		}else if (ADS1115.user_config.mode_measurement == SINGLE_SHOT_MODE){
+			address_pointer = ADDRESS_POINTER_REG_CONFIG_REGISTER ;
+			ADS1115.config_register.OS = 1 ;
+			raw_data[0] = address_pointer  ;
+			memcpy(&raw_data[1],(uint8_t *)&ADS1115.config_register ,2) ;//destino, fuente, tamaño
+			I2CWriteToSlave(ADS1115.I2C_address ,raw_data , 3) ;
+			ADS1115.config_register.OS = 0 ;
+			address_pointer = ADDRESS_POINTER_REG_CONVERSION_REGISTER ;
+			I2CWriteToSlave(ADS1115.I2C_address,&address_pointer,1) ;
+		}
+		I2CReadToSlave(ADS1115.I2C_address, read_data,2) ;
+		uint8_t aux = read_data[0] ;
+		read_data[0] = read_data[1] ;
+		read_data[1] = aux ;
+		// convert to voltage
+		memcpy (&voltage,read_data,sizeof(int16_t) ) ;
+		voltage = voltage >>4 ;
+		volt = (voltage) * factor_conv_ad ;
+		return volt ;
 
-	uint8_t address_pointer ;
-	uint8_t raw_data[3] = {0x01,0,0} ;
-	uint8_t read_data[2] ;
-	int16_t voltage ; // voltage in mv
-	float volt = 0 ;
-	if (ADS1115.user_config.mode_measurement == CONTINIOUS_MODE){
-		printf("cont mode") ;
-		I2CWriteToSlave(ADS1115.I2C_address,&address_pointer,1)        ;
-	}else if (ADS1115.user_config.mode_measurement == SINGLE_SHOT_MODE){
-		address_pointer = ADDRESS_POINTER_REG_CONFIG_REGISTER ;
-		ADS1115.config_register.OS = 1 ;
-		memcpy(&raw_data[1],(uint8_t *)&ADS1115.config_register ,2) ;//destino, fuente, tamaño
-		I2CWriteToSlave(ADS1115.I2C_address ,raw_data , 3) ;
-		ADS1115.config_register.OS = 0 ;
-		address_pointer = ADDRESS_POINTER_REG_CONVERSION_REGISTER ;
-		I2CWriteToSlave(ADS1115.I2C_address,&address_pointer,1)        ;
-	}else {
-		return -20.0;  //error not mode selected
-	}
 
-	I2CReadToSlave(ADS1115.I2C_address, read_data,2) ;
-	printf("read data: %02x %02x\r\n",read_data[0], read_data[1]) ;
-	uint8_t aux = read_data[0] ;
-	read_data[0] = read_data[1] ;
-	read_data[1] = aux ;
-	// convert to voltage
-	memcpy (&voltage,read_data,sizeof(int16_t) ) ;
-	printf("voltage:%d  mv\r\n",voltage ) ;
-	voltage = voltage >>4 ;
-	printf("voltage_shift:%dx  mv\r\n",voltage ) ;
-	volt = (voltage) * ( 4.09600/2048);
-	printf("voltage_float:%f \r\n",volt) ;
-	return 33.2 ;
+
+
+
 }
 
 void errorI2CWrite(uint8_t *error_code){
@@ -232,8 +260,6 @@ void errorI2CRead(uint8_t *error_code){
 		*error_code = ERROR_INIT_ADS1115_FAIL  	    ;
 	}
 }
-
-
 
 
 
