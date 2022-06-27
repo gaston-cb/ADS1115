@@ -25,8 +25,8 @@
  * @param length_buffer
  * @return error code: Ox01 -> success
  * 					 : OxFF -> error
+ *
  */
-
 uint8_t  I2CWriteToSlave(uint8_t I2C_address, uint8_t *buffer_data,size_t length_buffer){
 	uint8_t  error_code = ERROR_I2C_FAIL;
 	esp_err_t error_i2c ; //= NULL ;
